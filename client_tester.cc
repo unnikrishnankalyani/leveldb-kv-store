@@ -1,29 +1,43 @@
-#include <grpcpp/grpcpp.h>
-#include <sys/stat.h>
-#include <time.h>
-
 #include <iostream>
+#include <cassert>
 
-#include "client.cc"
-#include "wifs.grpc.pb.h"
+#include <leveldb/cache.h>          
+#include <leveldb/comparator.h>     
+#include <leveldb/dumpfile.h>       
+#include <leveldb/export.h>         
+#include <leveldb/iterator.h>       
+#include <leveldb/slice.h>          
+#include <leveldb/table_builder.h>  
+#include <leveldb/write_batch.h>    
+#include <leveldb/c.h>              
+#include <leveldb/db.h>             
+#include <leveldb/env.h>            
+#include <leveldb/filter_policy.h>  
+#include <leveldb/options.h>        
+#include <leveldb/status.h>         
+#include <leveldb/table.h> 
 
-void tester() {
-    char buf[BLOCK_SIZE + 1];
-    for (int i = 0; i < BLOCK_SIZE; i++) buf[i] = 'c';
-    int rc = do_put(0, buf);
-    if (rc == -1) std::cout << "PUT FAIL\n";
-
-    buf[0] = '\0';
-    rc = do_get(0, buf);
-    if (rc == -1) std::cout << "GET FAIL\n";
-
-    buf[BLOCK_SIZE] = '\0';
-    printf("get first char - %c\n", buf[0]);
-
-}
+#include "custom_fs.cc"
 
 int main(int argc, char* argv[]) {
-    init();
-    tester();
+    
+    leveldb::DB* db;
+    leveldb::Options options;
+    options.create_if_missing = true;
+    
+    leveldb::Env* actual_env = leveldb::Env::Default();
+    leveldb::Env* env = new CustomEnv(actual_env);
+    options.env = env;
+    
+    leveldb::Status status = leveldb::DB::Open(options, "/tmp/testdb", &db);
+    assert(status.ok());
+
+    leveldb::Status s = db->Put(leveldb::WriteOptions(), "1", "val1");
+
+    std::string ans = "";
+    if (s.ok()) s = db->Get(leveldb::ReadOptions(), "1", &ans);
+
+    std::cout<<ans<<"\n";
+
     return 0;
 }

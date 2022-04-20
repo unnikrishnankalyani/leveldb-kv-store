@@ -21,6 +21,8 @@ cmake_minimum_required(VERSION 3.5.1)
 
 project(wifs C CXX)
 
+SET(CMAKE_CXX_FLAGS  "-fno-rtti")
+
 include(../leveldb-kv-store/common.cmake)
 
 # Proto file
@@ -83,6 +85,7 @@ target_link_libraries(p2p_grpc_proto
   ${_PROTOBUF_LIBPROTOBUF})
 
 find_library(PTHREAD_LIB  NAMES pthread)
+find_library(LEVELDB_LIB  NAMES leveldb HINTS /usr/local/lib/)
 
 # client
 #add_executable(client "client.cc")
@@ -104,6 +107,11 @@ target_link_libraries(server
   ${_GRPC_GRPCPP}
   ${_PROTOBUF_LIBPROTOBUF})
 
+add_library(custom_fs "custom_fs.cc")
+target_link_libraries(custom_fs
+  ${PTHREAD_LIB}
+  ${LEVELDB_LIB})
+
 # client manual, easy for manual testing. spin up server and then client
 add_executable(client_tester "client_tester.cc")
 target_link_libraries(client_tester
@@ -111,4 +119,6 @@ target_link_libraries(client_tester
   wifs_grpc_proto
   ${_REFLECTION}
   ${_GRPC_GRPCPP}
-  ${_PROTOBUF_LIBPROTOBUF})
+  ${_PROTOBUF_LIBPROTOBUF}
+  ${LEVELDB_LIB}
+  custom_fs)
