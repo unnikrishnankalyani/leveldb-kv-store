@@ -48,6 +48,7 @@
 #include <leveldb/table.h> 
 
 #include "custom_fs.cc"
+#include "ZooKeeper.cpp"
 
 using grpc::Server;
 using grpc::ServerBuilder;
@@ -498,6 +499,37 @@ void sigintHandler(int sig_num)
 
 }
 
+void test_zookeeper() {
+    // copied from https://github.com/satanson/zk
+    // Refer the link for details on installation and usage. Specifically check https://github.com/satanson/zk/blob/master/zk_test.cpp
+    try {
+        std::string znode("/directory which is used by ZK i guess");
+        ZooKeeper zk("ip where ZK master is running I guess", 30000,shared_ptr<Watcher>(new Watcher()));
+        if (zk.zk_exists(znode, false)){
+            list<string> nodes=zk.zk_getChildren(znode,false);
+            if (nodes.empty()){
+                zk.zk_delete(znode,0);
+            }
+            while(!nodes.empty()){
+                cout<<nodes.front()<<endl;
+                nodes.pop_front();
+            }
+        }else{
+            zk.zk_create(znode,string(znode.begin(),znode.end()),CreateMode::PERSISTENT);
+            for(int i=0;i<5;++i){
+                string child_znode=znode+string("/child_znode")+to_string(i);
+                cout<<child_znode<<endl;
+                string data(child_znode.rbegin(),child_znode.rend());
+                zk.zk_create(child_znode,data,CreateMode::PERSISTENT);
+            }
+        }
+    } catch(std::exception& e) {
+        cout << e.what() << endl;
+    } catch(std::string& e) {
+        cout << e << endl;
+    }
+}
+
 int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
@@ -586,6 +618,8 @@ int main(int argc, char** argv) {
     std::cout << getServerDir(server_id) <<std::endl;
     leveldb::Status status = leveldb::DB::Open(options, getServerDir(server_id).c_str(), &db);
     assert(status.ok());
+
+    test_zookeeper();
 
     run_wifs_server();   
     return 0;

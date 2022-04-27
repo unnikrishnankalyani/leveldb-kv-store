@@ -21,9 +21,17 @@ cmake_minimum_required(VERSION 3.5.1)
 
 project(wifs C CXX)
 
-SET(CMAKE_CXX_FLAGS  "-fno-rtti")
 
 include(../leveldb-kv-store/common.cmake)
+
+find_library(ZOOKEEPER_LIB  NAMES zookeeper_st HINTS /usr/local/lib/)
+
+add_library(zookeerper_custom_lib "ZooKeeper.cpp")
+target_link_libraries(zookeerper_custom_lib
+  ${ZOOKEEPER_LIB})
+
+SET(CMAKE_CXX_FLAGS  "-fno-rtti")
+
 
 # Proto file
 get_filename_component(wifs_proto "protos/wifs.proto" ABSOLUTE)
@@ -114,7 +122,8 @@ target_link_libraries(server
   ${_GRPC_GRPCPP}
   ${_PROTOBUF_LIBPROTOBUF}
   ${LEVELDB_LIB}
-  custom_fs)
+  custom_fs
+  zookeerper_custom_lib)
 
 # client manual, easy for manual testing. spin up server and then client
 add_executable(client_tester "client_tester.cc")
