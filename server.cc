@@ -107,9 +107,7 @@ using p2p::SplitReq;
 char root_path[MAX_PATH_LENGTH];
 
 int server_id = 0;
-int last_server_id = 0; //This is to be used only by first server currently.
 int timestamp = 0;
-// TODO: read this from file when persisted 
 int master_id = 0;
 
 int ring_id = 0;
@@ -124,6 +122,11 @@ auto then = std::chrono::system_clock::now();
 std::condition_variable cv;
 
 leveldb::DB* db;
+
+unique_ptr<ConservatorFramework> framework;
+bool isMaster = false;
+
+sem_t mutex_allot_server_id;
 
 void heartbeat(int heartbeat_server_id);
 
@@ -230,16 +233,24 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
     }
 
     grpc::Status AllotServerId(ServerContext* context, const p2p::HeartBeat* request, p2p::ServerId* reply) {
-        reply->set_id(++last_server_id);
+        
+        sem_wait(&mutex_allot_server_id);
+        int next_poss_server_id = atoi(framework->getData()->forPath("/next_poss_server_id").c_str());
+        framework->deleteNode()->deletingChildren()->forPath("/next_poss_server_id");
+        framework->create()->forPath("/next_poss_server_id", (char *) std::to_string(next_poss_server_id + 1).c_str());
+        sem_post(&mutex_allot_server_id);
+        
+        reply->set_id(next_poss_server_id);
         populate_hash_server_map(reply->mutable_servermap());
         return grpc::Status::OK;
     }
 
     grpc::Status InitializeNewServer(ServerContext* context, const p2p::HeartBeat* request, p2p::HeartBeat* reply) {
-        insert_server_entry(last_server_id);//TODO: take server id from request
-        broadcast_new_server_to_all(last_server_id, 0); //broadcast to the new server also, mode 0 for adding server ID
+        int new_server_id = request->id();
+        insert_server_entry(new_server_id);
+        broadcast_new_server_to_all(new_server_id, 0); //broadcast to the new server also, mode 0 for adding server ID
         //Add to server list
-        std::thread hb(heartbeat, last_server_id);
+        std::thread hb(heartbeat, new_server_id);
         hb.detach();
         update_ring_id();
         print_ring();
@@ -250,14 +261,13 @@ class PeerToPeerServiceImplementation final : public PeerToPeer::Service {
 
     grpc::Status BroadcastServerId(ServerContext* context, const p2p::ServerId* request, p2p::HeartBeat* reply) {
         //Add new serverId to server list
-        last_server_id = request->id();
         if(request->action() == p2p::ServerId_Action_INSERT){
-            insert_server_entry(last_server_id);
+            insert_server_entry(request->id());
             std::cout << "new server added: " << request->id() << std::endl;
 
         }
         else{
-            remove_server_entry(last_server_id);
+            remove_server_entry(request->id());
             std::cout << "server removed: " << request->id() << std::endl;
 
         }
@@ -507,77 +517,76 @@ void heartbeat(int heartbeat_server_id){
             // TODO: figure out frequency of heartbeats, should we assume temporary failures and do retry  
 }
 
+void find_master_server() {
+    int ret = framework->create()->forPath("/master", (char *) std::to_string(server_id).c_str());
+    if (ret == ZNODEEXISTS) {
+        // file exists
+        master_id = atoi(framework->getData()->forPath("/master").c_str());
+        std::cout<<"----MASTER ID----"<<master_id<<std::endl;
+        return;
+    }
+
+    master_id = server_id;
+    isMaster = true;
+    std::cout<<"I AM THE MASTER\n";
+    // will go through only the first time
+    ret = framework->create()->forPath("/next_poss_server_id", (char *) "1");
+    if (ret == ZNODEEXISTS) {
+        std::cout<<"next_poss_server_id exists, dind't overwrite\n";
+    } else std::cout<<"creating next_poss_server_id\n";
+}
+
 void watch_for_master() {
-    while(true && master_id != server_id) {
+    while(master_id != server_id) {
         auto now = std::chrono::system_clock::now();
         std::chrono::duration<double> diff = now - then;
         std::cout<<"Time elapsed between latest ping from master till now = "<<diff.count()<<std::endl;
         if(diff.count() > 5) {
-            std::cout<<"----FINDING NEW MASTER----"<<std::endl;
-            //TODO: can use to connect to master, kind of like how bigtable master does using Chubby. (figure out and handle locks maybe?)
-             int next_master_id = INT_MAX;
-             for(auto it = server_map.begin(); it != server_map.end(); it++) {
-                    if(it->second != master_id) {
-                        next_master_id = std::min(next_master_id, it->second);
-                    }
-             }
-            master_id = next_master_id;
-            std::cout<<"Next master id = "<<std::to_string(master_id)<<std::endl;
-            std::ofstream file;
-            file.open(master_file.c_str());
-            file << std::to_string(master_id) << std::endl;
-            then = std::chrono::system_clock::now();
-            file.close();
+            find_master_server();
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1000)); 
     }
-}
 
-void find_master_server() {
-    master_file = getHomeDir() + "/.master"; 
-    FILE *file = fopen(master_file.c_str(), "r");
-    if (file) {
-        fclose(file);
-        std::ifstream t(master_file.c_str());
-        std::stringstream buffer;
-        buffer << t.rdbuf();
-        
-        master_id = stoi(buffer.str());
-        // std::cout<<"INIT MASTER = "<<master_id<<std::endl;
-    } else {
-        master_id = 0;
-    } 
-    std::cout<<"----MASTER ID----"<<master_id<<std::endl;
+    // now that you are the master start heartbeats with everybody
+    for(auto it = server_map.begin() ; it != server_map.end() ; it++) {
+        if(it->second == server_id) continue;
+        std::thread hb(heartbeat, it->second);
+        hb.detach();
+    }
 }
-
 
 void sigintHandler(int sig_num)
 {
+    if(isMaster) {
+        // delete master file in zk
+        framework->deleteNode()->deletingChildren()->forPath("/master");
+    }
+    framework->close();
     std::cerr << "----CLEAN SHUTDOWN----\n";
     delete db;
     std::exit(0);
-
 }
 
-void test_zk() {
-    clientid_t zk_client;
-    zk_client.client_id = 0;
-    strcpy(zk_client.passwd, "lol");
+void init_zk_connection() {
+    // clientid_t zk_client;
+    // zk_client.client_id = client_id;
+    // strcpy(zk_client.passwd, "lol");
 
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
-    unique_ptr<ConservatorFramework> framework = factory.newClient("127.0.0.1:2181", 1000, &zk_client);
+    framework = factory.newClient("127.0.0.1:2181");
     framework->start();
 
-    int result = framework->create()->forPath("/foo", (char *) "bar");
     cout<<framework->getData()->forPath("/foo")<<"---------\n";
-
-    framework->close();
 }
 
 int main(int argc, char** argv) {
     //Ctrl + C handler
     signal(SIGINT, sigintHandler);
-    /*
+    sem_init(&mutex_allot_server_id, 0, 1);
+    init_zk_connection();
+    
+    
+    /* 
     Servers will be assigned (p2p,wifs) port numbers as (50060 + id, 50070+id), where id is incremented per server init.
     First server id = 0 and this is the server the client talks to, for now (master/load balancer + server). 
     First server maintains the list of servers and key ranges.
@@ -593,7 +602,6 @@ int main(int argc, char** argv) {
     ClientContext context;
     p2p::HeartBeat hbrequest, hbreply;
     // TODO: not sure if needed, maybe useful later?
-    int isMaster = 1;
     grpc::Status s = client_stub_[master_id]->Ping(&context, hbrequest, &hbreply);
     
     if(s.ok()) {
@@ -610,7 +618,7 @@ int main(int argc, char** argv) {
             mkdir(getServerDir(server_id).c_str(), 0777);
         }
 
-        isMaster = 0;
+        isMaster = false;
 
         server_map = std::map<long,int>(idreply.servermap().begin(),idreply.servermap().end());
         std::cout << "servermap initialized" << std::endl;
@@ -646,6 +654,7 @@ int main(int argc, char** argv) {
 
     ClientContext context_init;
     if(!isMaster ) {
+        hbrequest.set_id(server_id);
         s = client_stub_[master_id]->InitializeNewServer(&context_init, hbrequest, &hbreply);
         std::thread watch(watch_for_master);
         watch.detach();

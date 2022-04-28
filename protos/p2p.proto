@@ -25,6 +25,8 @@ message HeartBeat {
         READY = 1;
     }
     State state = 1;
+
+    int32 id = 2;
 }
 
 message StatusRes {
