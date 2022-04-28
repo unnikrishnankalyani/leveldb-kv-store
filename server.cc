@@ -49,6 +49,38 @@
 
 #include "custom_fs.cc"
 
+#include <conservator/VectorPathableAndWatchable.h>
+#include <conservator/Pathable.h>
+#include <conservator/CreateBuilder.h>
+#include <conservator/ChildrenDeletable.h>
+#include <conservator/GetACLBuilderImpl.h>
+#include <conservator/StatablePathable.h>
+#include <conservator/SetDataBuilderImpl.h>
+#include <conservator/ConservatorFrameworkFactory.h>
+#include <conservator/SetACLBuilderImpl.h>
+#include <conservator/SetDataBuilder.h>
+#include <conservator/ExistsBuilderImpl.h>
+#include <conservator/CreateBuilderImpl.h>
+#include <conservator/Flagable.h>
+#include <conservator/PathableAndWriteable.h>
+#include <conservator/DeleteBuilder.h>
+#include <conservator/GetDataBuilderImpl.h>
+#include <conservator/ConservatorFramework.h>
+#include <conservator/GetDataBuilder.h>
+#include <conservator/VectorPathable.h>
+#include <conservator/Versionable.h>
+#include <conservator/ACLVersionable.h>
+#include <conservator/GetChildrenBuilder.h>
+#include <conservator/GetACLBuilder.h>
+#include <conservator/Watchable.h>
+#include <conservator/GetChildrenBuilderImpl.h>
+#include <conservator/SetACLBuilder.h>
+#include <conservator/PathableAndWatchable.h>
+#include <conservator/ExistsBuilder.h>
+#include <conservator/DeleteBuilderImpl.h>
+#include <conservator/Statable.h>
+#include <check.h>
+
 using grpc::Server;
 using grpc::ServerBuilder;
 using grpc::ServerContext;
@@ -525,6 +557,21 @@ void sigintHandler(int sig_num)
     delete db;
     std::exit(0);
 
+}
+
+void test_zk() {
+    clientid_t zk_client;
+    zk_client.client_id = 0;
+    strcpy(zk_client.passwd, "lol");
+
+    ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
+    unique_ptr<ConservatorFramework> framework = factory.newClient("127.0.0.1:2181", 1000, &zk_client);
+    framework->start();
+
+    int result = framework->create()->forPath("/foo", (char *) "bar");
+    cout<<framework->getData()->forPath("/foo")<<"---------\n";
+
+    framework->close();
 }
 
 int main(int argc, char** argv) {
