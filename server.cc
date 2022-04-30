@@ -575,8 +575,6 @@ void init_zk_connection() {
     ConservatorFrameworkFactory factory = ConservatorFrameworkFactory();
     framework = factory.newClient("127.0.0.1:2181");
     framework->start();
-
-    cout<<framework->getData()->forPath("/foo")<<"---------\n";
 }
 
 int main(int argc, char** argv) {
