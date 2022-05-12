@@ -64,7 +64,7 @@ class WifsClient {
         return status.ok() && reply.status() == wifs::GetRes_Status_PASS ? 0 : -1;
     }
 
-    int wifs_PUT(char* key, char* val) {
+    int wifs_PUT(char* key, const char* val) {
         ClientContext context;
         PutReq request;
         PutRes reply;
@@ -83,7 +83,7 @@ class WifsClient {
         request.set_key(std::string(key));
         
         Status status = stub_->wifs_DELETE(&context, request, & reply);
-        print_map(reply.hash_server_map());
+        // print_map(reply.hash_server_map());
         server_map = std::map<long,wifs::ServerDetails>(reply.hash_server_map().begin(), reply.hash_server_map().end());
         return status.ok() ? 0 : -1;
     }
